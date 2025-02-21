@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const http = require('http'); // Node's HTTP module
+const { Server } = require('socket.io'); // Socket.IO
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -9,86 +11,103 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Connection
-const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.USER_PASSWORD}@cluster0.aiyzp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+// Create HTTP server and attach our Express app
+const server = http.createServer(app);
 
+// Initialize Socket.IO server
+const io = new Server(server, {
+  cors: {
+    origin: '*', // In production, restrict this appropriately.
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  },
+});
+
+// Socket.IO connection event
+io.on('connection', (socket) => {
+  console.log('A client connected:', socket.id);
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
+// MongoDB Connection URI from environment variables
+const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.USER_PASSWORD}@cluster0.aiyzp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 const client = new MongoClient(uri, {
-    serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-    }
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
 });
 
 async function run() {
-    try {
-        await client.connect();
-        console.log("Connected to MongoDB");
+  try {
+    await client.connect();
+    console.log("Connected to MongoDB");
+    const db = client.db("ScicTask");
+    const users = db.collection("user");
+    const tasks = db.collection("task");
 
-        const db = client.db("MicroWork");
-        const users = db.collection("user");
-        const tasks = db.collection("Task");
+    // Create new user endpoint
+    app.post('/user', async (req, res) => {
+      const person = req.body;
+      const query = { email: person.email };
+      const existingUser = await users.findOne(query);
+      if (existingUser) {
+        return res.send({ message: 'User already exists' });
+      }
+      const result = await users.insertOne(person);
+      res.send(result);
+    });
 
-        // ✅ Get All Tasks
-        app.get('/tasks', async (req, res) => {
-            const result = await tasks.find().toArray();
-            res.send(result);
-        });
+    // Add a new task and emit update event
+    app.post('/task', async (req, res) => {
+      const data = req.body;
+      const result = await tasks.insertOne(data);
+      res.send(result);
+      io.emit("tasksUpdated");
+    });
 
-        // ✅ Add New Task
-        app.post('/tasks', async (req, res) => {
-            const newTask = req.body;
-            const result = await tasks.insertOne({ ...newTask, timestamp: new Date() });
-            res.send(result);
-        });
+    // Update task endpoint (update category, etc.)
+    app.put('/tasks/:id', async (req, res) => {
+      const id = req.params.id;
+      const updateData = req.body;
+      try {
+        const result = await tasks.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+        res.send(result);
+        io.emit("tasksUpdated");
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
 
-        // ✅ Update Task (Title, Description, or Category)
-        app.put('/tasks/:id', async (req, res) => {
-            const { id } = req.params;
-            const updatedTask = req.body;
-            const result = await tasks.updateOne(
-                { _id: new ObjectId(id) },
-                { $set: updatedTask }
-            );
-            res.send(result);
-        });
+    // Retrieve all tasks
+    app.get('/Alltask', async (req, res) => {
+      const result = await tasks.find().toArray();
+      res.send(result);
+    });
 
-        // ✅ Delete Task
-        app.delete('/tasks/:id', async (req, res) => {
-            const { id } = req.params;
-            const result = await tasks.deleteOne({ _id: new ObjectId(id) });
-            res.send(result);
-        });
+    // Get all users (optional)
+    app.get('/users', async (req, res) => {
+      const result = await users.find().toArray();
+      res.send(result);
+    });
 
-        // ✅ Create User (if not exists)
-        app.post('/user', async (req, res) => {
-            const person = req.body;
-            const query = { email: person.email };
-            const existingUser = await users.findOne(query);
-            if (existingUser) {
-                return res.send({ message: 'User already exists' });
-            }
-            const result = await users.insertOne(person);
-            res.send(result);
-        });
-
-        // ✅ Get All Users (Optional)
-        app.get('/users', async (req, res) => {
-            const result = await users.find().toArray();
-            res.send(result);
-        });
-
-    } catch (error) {
-        console.error("Error connecting to MongoDB:", error);
-    }
+  } catch (error) {
+    console.error("Error connecting to MongoDB:", error);
+  }
 }
 
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-    res.send('Task Management API Running');
+  res.send('Task Management API Running');
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+// Start the HTTP server (which also starts Socket.IO)
+server.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
