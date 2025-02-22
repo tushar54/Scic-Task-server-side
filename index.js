@@ -17,7 +17,7 @@ const server = http.createServer(app);
 // Initialize Socket.IO server
 const io = new Server(server, {
   cors: {
-    origin: '*', // In production, restrict this appropriately.
+    origin: 'https://jobtaskforscic.web.app/', // In production, restrict this appropriately.
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
