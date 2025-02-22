@@ -24,9 +24,9 @@ const io = new Server(server, {
 
 // Socket.IO connection event
 io.on('connection', (socket) => {
-  console.log('A client connected:', socket.id);
+ 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    
   });
 });
 
@@ -43,7 +43,6 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
-    console.log("Connected to MongoDB");
     const db = client.db("ScicTask");
     const users = db.collection("user");
     const tasks = db.collection("task");
@@ -96,13 +95,35 @@ async function run() {
       res.send(result);
     });
 
-    app.delete('/delete/:id',async(req,res)=>{
-      const data=req.params.id
-      const query={_id: new ObjectId(data)}
-      const result=await tasks.deleteOne(query)
-      res.send(result)
-    })
+    // Delete task endpoint
+    app.delete('/delete/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await tasks.deleteOne(query);
+      res.send(result);
+      io.emit("tasksUpdated");
+    });
 
+    // Reorder tasks endpoint
+    app.put("/reorder", async (req, res) => {
+      const { category, tasks: tasksOrder } = req.body;
+     
+    
+      try {
+        for (const { _id, order } of tasksOrder) {
+          await tasks.updateOne(
+            { _id: new ObjectId(_id) },
+            { $set: { order } }
+          );
+        }
+        res.json({ success: true });
+        io.emit("tasksUpdated");
+      } catch (error) {
+        console.error("Error reordering tasks:", error);
+        res.status(500).json({ error: "Failed to reorder tasks" });
+      }
+    });
+    
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
   }
@@ -116,5 +137,5 @@ app.get('/', (req, res) => {
 
 // Start the HTTP server (which also starts Socket.IO)
 server.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+ 
 });
