@@ -96,6 +96,13 @@ async function run() {
       res.send(result);
     });
 
+    app.delete('/delete/:id',async(req,res)=>{
+      const data=req.params.id
+      const query={_id: new ObjectId(data)}
+      const result=await tasks.deleteOne(query)
+      res.send(result)
+    })
+
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
   }
